@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Админ — PDF маълумотномалар</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    margin: 0; padding: 24px 16px; background: #f6f7f9; color: #1a1a1a;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #6b7075; font-size: 14px; margin: 0 0 20px; }
+  .card { background: #fff; border: 1px solid #e3e5e8; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+
+  button, .fbtn {
+    font: inherit; font-size: 14px; line-height: 1;
+    padding: 9px 13px; border: 1px solid #ccd0d5; background: #fff; color: #2c3034;
+    border-radius: 7px; cursor: pointer; display: inline-block; white-space: nowrap;
+  }
+  button:hover, .fbtn:hover { background: #f2f4f6; }
+  button:disabled { opacity: .45; cursor: default; }
+  .primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+  .primary:hover { background: #2760d4; }
+  .danger { color: #c0392b; border-color: #e6c3be; }
+  .danger:hover { background: #fdf3f2; }
+  .fbtn input { display: none; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  #msg { font-size: 14px; margin-top: 12px; color: #444; min-height: 18px; }
+
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  th, td { padding: 12px 10px; border-bottom: 1px solid #eceef0; text-align: left; vertical-align: middle; font-size: 14px; }
+  th { background: #fafbfc; font-size: 13px; color: #555; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num { color: #8b9096; width: 38px; }
+  td.name { word-break: break-word; min-width: 150px; }
+  .rename { cursor: pointer; border: none; background: none; color: #8b9096; padding: 2px 4px; font-size: 13px; }
+  .rename:hover { color: #2f6fed; background: none; }
+  .badge { display: inline-block; font-size: 12px; color: #9a6b00; background: #fff6e0; border: 1px solid #f0dfae; border-radius: 5px; padding: 3px 7px; margin-top: 4px; }
+  img.qr { width: 84px; height: 84px; display: block; border: 1px solid #eceef0; border-radius: 4px; }
+  td.qr { width: 100px; }
+  td.act { white-space: nowrap; }
+  td.act > * { margin: 2px 4px 2px 0; }
+  .empty { padding: 30px; text-align: center; color: #8b9096; }
+
+  /* Telefonda jadval o'rniga karta ko'rinish */
+  @media (max-width: 700px) {
+    body { padding: 16px 10px; }
+    h1 { font-size: 19px; }
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr {
+      display: grid; grid-template-columns: 84px 1fr;
+      grid-template-areas: "qr name" "act act";
+      gap: 10px 12px; align-items: center;
+      padding: 14px 12px; border-bottom: 8px solid #f6f7f9;
+    }
+    td { border: none; padding: 0; }
+    td.num { display: none; }
+    td.qr { grid-area: qr; width: auto; }
+    td.name { grid-area: name; font-size: 14px; }
+    td.act {
+      grid-area: act; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    td.act > * { margin: 0; width: 100%; }
+    td.act a { display: block; }
+    button, .fbtn { width: 100%; text-align: center; padding: 11px 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PDF маълумотномалар — админ</h1>
+  <p class="sub">Ҳар бир қаторнинг ўз QR-коди бор. PDF'ни алмаштирсангиз ҳам QR ўзгармайди.</p>
+
+  <div class="card">
+    <div class="toolbar">
+      <label class="fbtn primary">
+        Бир нечта PDF юклаш
+        <input type="file" id="bulk" accept="application/pdf,.pdf" multiple>
+      </label>
+      <button id="addRow">Бўш қатор қўшиш</button>
+      <span style="color:#8b9096;font-size:13px">Бўш қатор — QR аввал тайёр бўлади, PDF кейин юкланади</span>
+    </div>
+    <div id="msg"></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>№</th>
+          <th>PDF маълумотнома</th>
+          <th>QR-код</th>
+          <th>Амал</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">Ҳозирча қатор йўқ</div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const msg = (t) => { $("msg").textContent = t || ""; };
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+async function load() {
+  const list = await (await fetch("/api/files")).json();
+  const box = $("rows");
+  box.innerHTML = "";
+  $("empty").style.display = list.length ? "none" : "block";
+
+  list.forEach((f, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td class="num">' + (i + 1) + "</td>" +
+      '<td class="name">' +
+        esc(f.name) +
+        '<button class="rename" data-ren="' + f.id + '" title="Номини ўзгартириш">&#9998;</button>' +
+        (f.hasFile ? "" : '<br><span class="badge">PDF юкланмаган</span>') +
+      "</td>" +
+      '<td class="qr"><img class="qr" src="/qr/' + f.id + '.png" alt="QR"></td>' +
+      '<td class="act">' +
+        '<label class="fbtn">' + (f.hasFile ? "PDF алмаштириш" : "PDF юклаш") +
+          '<input type="file" accept="application/pdf,.pdf" data-up="' + f.id + '"></label>' +
+        (f.hasFile
+          ? '<a href="/p/' + f.id + '" target="_blank" style="text-decoration:none"><button>Кўриш</button></a>'
+          : "<button disabled>Кўриш</button>") +
+        '<a href="/qr/' + f.id + '.png?download=1" style="text-decoration:none"><button>QR юклаш</button></a>' +
+        '<button class="danger" data-del="' + f.id + '">Ўчириш</button>' +
+      "</td>";
+    box.appendChild(tr);
+  });
+
+  // Bitta qatorga PDF yuklash
+  box.querySelectorAll("input[data-up]").forEach(inp => {
+    inp.onchange = async () => {
+      if (!inp.files.length) return;
+      const fd = new FormData();
+      fd.append("file", inp.files[0]);
+      msg("Юкланмоқда...");
+      const r = await fetch("/api/files/" + inp.dataset.up + "/pdf", { method: "POST", body: fd });
+      const d = await r.json();
+      msg(d.ok ? "Юкланди: " + d.name : "Хато: " + (d.error || ""));
+      load();
+    };
+  });
+
+  // O'chirish
+  box.querySelectorAll("button[data-del]").forEach(b => {
+    b.onclick = async () => {
+      if (!confirm("Ушбу қатор, PDF ва QR-код ўчирилсинми?")) return;
+      await fetch("/api/files/" + b.dataset.del, { method: "DELETE" });
+      msg("Ўчирилди.");
+      load();
+    };
+  });
+
+  // Nomini o'zgartirish
+  box.querySelectorAll("button[data-ren]").forEach(b => {
+    b.onclick = async () => {
+      const old = b.parentNode.firstChild.textContent.trim();
+      const name = prompt("Янги ном:", old);
+      if (!name || name.trim() === old) return;
+      await fetch("/api/files/" + b.dataset.ren, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      load();
+    };
+  });
+}
+
+// Bir nechta PDF birdan
+$("bulk").onchange = async () => {
+  const inp = $("bulk");
+  if (!inp.files.length) return;
+  if (inp.files.length > 10) { msg("Бир мартада кўпи билан 10 та файл."); inp.value = ""; return; }
+  const fd = new FormData();
+  for (const f of inp.files) fd.append("files", f);
+  msg("Юкланмоқда...");
+  try {
+    const d = await (await fetch("/api/upload", { method: "POST", body: fd })).json();
+    msg(d.ok ? d.added + " та файл юкланди." : "Хато: " + (d.error || ""));
+  } catch (e) {
+    msg("Хато: " + e.message);
+  }
+  inp.value = "";
+  load();
+};
+
+// Bo'sh qator
+$("addRow").onclick = async () => {
+  const name = prompt("Қатор номи (масалан: Маълумотнома 1):", "");
+  if (name === null) return;
+  await fetch("/api/rows", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  msg("Қатор қўшилди — QR тайёр, энди PDF юкланг.");
+  load();
+};
+
+load();
+</script>
+</body>
+</html>
